@@ -1,0 +1,16 @@
+[package]
+name = "calculate-repo-late-days"
+version = "1.0.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+csv = "1.1.6"
+chrono = { version="0.4.23", features = ["serde"]}
+chrono-tz = "0.8.1"
+gitlab = "0.1507.0"
+serde = "1.0.152"
+time = "0.3.17"
+
+
