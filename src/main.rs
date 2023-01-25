@@ -160,6 +160,8 @@ fn parse_csv_file(filename: &String) -> Vec<Vec<String>> {
 }
 
 fn read_token_file(filename: &String) -> String {
-    fs::read_to_string(filename)
-        .unwrap_or_else(|_| panic!("Unable to read token from file {}", filename))
+    let mut token = fs::read_to_string(filename)
+        .unwrap_or_else(|_| panic!("Unable to read token from file {}", filename));
+    token.retain(|c| !c.is_whitespace());
+    token
 }
