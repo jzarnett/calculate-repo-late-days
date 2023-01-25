@@ -14,7 +14,7 @@ The tool creates a csv file in the format `id, late days used` (e.g., `jzarnett,
 The CSV file is created without headers since your import routine probably wants something annoying to autogenerate. LEARN, why.
 
 ## Usage
-I tried to make it easy but there are a few things that could not be avoided. It takes five commandline arguments (order and format matter, sadly).
+I tried to make it easy but there are a few things that could not be avoided. It takes six commandline arguments (order and format matter, sadly).
 
 Formally:
 ```
