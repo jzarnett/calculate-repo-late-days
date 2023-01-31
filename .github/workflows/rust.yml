@@ -10,7 +10,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  format-and-build:
+  format-build-and-test:
 
     runs-on: ubuntu-latest
 
