@@ -367,6 +367,26 @@ mod tests {
     }
 
     #[test]
+    fn can_parse_with_newline_at_eof() {
+        let test_filename = String::from("tests/resources/newline_eof.csv");
+        let mut expected: Vec<Vec<String>> = Vec::new();
+        let mut inner = Vec::new();
+        inner.push(String::from("username"));
+        expected.push(inner);
+        let mut inner = Vec::new();
+        inner.push(String::from("u2sernam"));
+        expected.push(inner);
+        let mut inner = Vec::new();
+        inner.push(String::from("u3sernam"));
+        expected.push(inner);
+
+        let parsed = parse_csv_file(&test_filename);
+
+        assert_eq!(parsed, expected);
+    }
+
+
+    #[test]
     fn can_parse_group_w_uneven_sizes_csv() {
         let test_filename = String::from("tests/resources/group_uneven_sizes.csv");
         let mut expected: Vec<Vec<String>> = Vec::new();
