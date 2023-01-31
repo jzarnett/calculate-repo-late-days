@@ -43,6 +43,20 @@ struct GitLabConfig {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
+    if !validate_args_len(&args) {
+        return;
+    }
+
+    let config = build_config(&args);
+    let repo_members = parse_csv_file(args.get(5).unwrap());
+
+    let token = read_token_file(args.get(6).unwrap());
+    let client = Gitlab::new(String::from(UW_GITLAB_URL), token).unwrap();
+
+    get_late_days(client, repo_members, config)
+}
+
+fn validate_args_len(args: &Vec<String>) -> bool {
     if args.len() != 7 {
         println!(
             "Usage: {} <designation> <gitlab_group_name> <due_date_time> <tolerance_in_mins> <list_of_student_groups.csv> <token_file>",
@@ -52,9 +66,12 @@ fn main() {
             "Example: {} a1 ece459-1231 \"2023-01-27 23:59\" 60 students.csv token.git",
             args.get(0).unwrap()
         );
-        return;
+        return false;
     }
-    let token = read_token_file(args.get(6).unwrap());
+    true
+}
+
+fn build_config(args: &[String]) -> GitLabConfig {
     let duration_minutes: u64 = args.get(4).unwrap().parse().unwrap();
     let naive_date_time =
         NaiveDateTime::parse_from_str(args.get(3).unwrap(), DATE_TIME_FORMAT).unwrap();
@@ -66,20 +83,13 @@ fn main() {
         due_date_time: due_date,
         tolerance: Duration::from_secs(60 * duration_minutes),
     };
-
-    let repo_members = parse_csv_file(args.get(5).unwrap());
-    let client = Gitlab::new(String::from(UW_GITLAB_URL), token).unwrap();
-
-    get_late_days(client, repo_members, config)
+    config
 }
 
 fn get_late_days(client: Gitlab, repo_members: Vec<Vec<String>>, config: GitLabConfig) {
     let output_file_name = format! {"{}-{}-latedays.csv", config.group_name, config.designation};
     let mut output_file = File::create(output_file_name).unwrap();
-    let effective_due_date = config
-        .due_date_time
-        .checked_add_signed(chrono::Duration::from_std(config.tolerance).unwrap())
-        .unwrap();
+    let effective_due_date = calculate_effective_due_date(&config);
 
     for i in 0..repo_members.len() {
         let group_or_student = repo_members.get(i).unwrap();
@@ -97,28 +107,33 @@ fn get_late_days(client: Gitlab, repo_members: Vec<Vec<String>>, config: GitLabC
         let last_commit = get_last_commit(&client, &config.group_name, &project_name);
         let lateness_in_days = calculate_lateness(last_commit, effective_due_date);
         for student in group_or_student {
-            let file_line = format!("{},{}\n", student, lateness_in_days);
+            let file_line = format!("{student},{lateness_in_days}\n");
             output_file.write_all(file_line.as_bytes()).unwrap();
         }
     }
 }
 
+fn calculate_effective_due_date(config: &GitLabConfig) -> DateTime<Tz> {
+    let effective_due_date = config
+        .due_date_time
+        .checked_add_signed(chrono::Duration::from_std(config.tolerance).unwrap())
+        .unwrap();
+    effective_due_date
+}
+
 fn calculate_lateness(last_commit: DateTime<Tz>, due_date_time: DateTime<Tz>) -> i64 {
-    println!(
-        "Last commit was on {}; due date was {}",
-        last_commit, due_date_time
-    );
-    if last_commit.lt(&due_date_time) {
+    println!("Last commit was on {last_commit}; due date was {due_date_time}");
+    if last_commit.le(&due_date_time) {
         return 0;
     }
-    let diff = last_commit - due_date_time;
-    println!("This is is {} minutes late", diff.num_minutes());
-    1 + (diff.num_minutes() as f64 / MINS_PER_DAY).floor() as i64
+    let diff = (last_commit - due_date_time).num_minutes();
+    println!("This is is {diff} minutes late");
+    1 + (diff as f64 / MINS_PER_DAY).floor() as i64
 }
 
 fn get_last_commit(client: &Gitlab, group_name: &String, project_name: &String) -> DateTime<Tz> {
     let project_builder = projects::ProjectBuilder::default()
-        .project(format!("{}/{}", group_name, project_name))
+        .project(format!("{group_name}/{project_name}"))
         .build()
         .unwrap();
 
@@ -134,8 +149,7 @@ fn get_last_commit(client: &Gitlab, group_name: &String, project_name: &String) 
     let branch: Branch = branch_builder.query(client).unwrap();
     if !branch.default {
         println!(
-            "Project {} uses a different default branch than expected {}!",
-            project_name, DEFAULT_BRANCH_NAME
+            "Project {project_name} uses a different default branch than expected {DEFAULT_BRANCH_NAME}!",
         )
     }
     branch.commit.committed_date.with_timezone(&Eastern)
@@ -161,7 +175,132 @@ fn parse_csv_file(filename: &String) -> Vec<Vec<String>> {
 
 fn read_token_file(filename: &String) -> String {
     let mut token = fs::read_to_string(filename)
-        .unwrap_or_else(|_| panic!("Unable to read token from file {}", filename));
+        .unwrap_or_else(|_| panic!("Unable to read token from file {filename}"));
     token.retain(|c| !c.is_whitespace());
     token
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs::{File, remove_file};
+    use std::io::Write;
+    use std::path::Path;
+    use chrono::NaiveDateTime;
+    use chrono_tz::Canada::Eastern;
+
+    use crate::{calculate_lateness, DATE_TIME_FORMAT, read_token_file};
+
+    #[test]
+    fn late_days_zero_if_sub_day_before_due_date() {
+        let due_date = NaiveDateTime::parse_from_str("2023-01-24 22:05", DATE_TIME_FORMAT).unwrap();
+        let due_date = due_date.and_local_timezone(Eastern).unwrap();
+
+        let submit_date =
+            NaiveDateTime::parse_from_str("2023-01-23 11:29", DATE_TIME_FORMAT).unwrap();
+        let submit_date = submit_date.and_local_timezone(Eastern).unwrap();
+
+        assert_eq!(calculate_lateness(submit_date, due_date), 0);
+    }
+
+    #[test]
+    fn late_days_zero_if_sub_hours_before_due_date() {
+        let due_date = NaiveDateTime::parse_from_str("2023-01-24 22:05", DATE_TIME_FORMAT).unwrap();
+        let due_date = due_date.and_local_timezone(Eastern).unwrap();
+
+        let submit_date =
+            NaiveDateTime::parse_from_str("2023-01-24 11:29", DATE_TIME_FORMAT).unwrap();
+        let submit_date = submit_date.and_local_timezone(Eastern).unwrap();
+
+        assert_eq!(calculate_lateness(submit_date, due_date), 0);
+    }
+
+    #[test]
+    fn late_days_zero_if_sub_at_due_date() {
+        let due_date = NaiveDateTime::parse_from_str("2023-01-24 22:05", DATE_TIME_FORMAT).unwrap();
+        let due_date = due_date.and_local_timezone(Eastern).unwrap();
+
+        let submit_date =
+            NaiveDateTime::parse_from_str("2023-01-24 22:05", DATE_TIME_FORMAT).unwrap();
+        let submit_date = submit_date.and_local_timezone(Eastern).unwrap();
+
+        assert_eq!(calculate_lateness(submit_date, due_date), 0);
+    }
+
+    #[test]
+    fn late_days_one_if_sub_next_day() {
+        let due_date = NaiveDateTime::parse_from_str("2023-01-24 22:05", DATE_TIME_FORMAT).unwrap();
+        let due_date = due_date.and_local_timezone(Eastern).unwrap();
+
+        let submit_date =
+            NaiveDateTime::parse_from_str("2023-01-25 08:12", DATE_TIME_FORMAT).unwrap();
+        let submit_date = submit_date.and_local_timezone(Eastern).unwrap();
+
+        assert_eq!(calculate_lateness(submit_date, due_date), 1);
+    }
+
+    #[test]
+    fn late_days_one_if_sub_1h_late() {
+        let due_date = NaiveDateTime::parse_from_str("2023-01-24 22:05", DATE_TIME_FORMAT).unwrap();
+        let due_date = due_date.and_local_timezone(Eastern).unwrap();
+
+        let submit_date =
+            NaiveDateTime::parse_from_str("2023-01-24 23:05", DATE_TIME_FORMAT).unwrap();
+        let submit_date = submit_date.and_local_timezone(Eastern).unwrap();
+
+        assert_eq!(calculate_lateness(submit_date, due_date), 1);
+    }
+
+    #[test]
+    fn late_days_one_if_sub_5m_late() {
+        let due_date = NaiveDateTime::parse_from_str("2023-01-24 22:05", DATE_TIME_FORMAT).unwrap();
+        let due_date = due_date.and_local_timezone(Eastern).unwrap();
+
+        let submit_date =
+            NaiveDateTime::parse_from_str("2023-01-24 22:10", DATE_TIME_FORMAT).unwrap();
+        let submit_date = submit_date.and_local_timezone(Eastern).unwrap();
+
+        assert_eq!(calculate_lateness(submit_date, due_date), 1);
+    }
+
+    #[test]
+    fn late_days_three_if_sub_over_2_days_late() {
+        let due_date = NaiveDateTime::parse_from_str("2023-01-24 22:05", DATE_TIME_FORMAT).unwrap();
+        let due_date = due_date.and_local_timezone(Eastern).unwrap();
+
+        let submit_date =
+            NaiveDateTime::parse_from_str("2023-01-26 23:50", DATE_TIME_FORMAT).unwrap();
+        let submit_date = submit_date.and_local_timezone(Eastern).unwrap();
+
+        assert_eq!(calculate_lateness(submit_date, due_date), 3);
+    }
+
+    #[test]
+    fn successfully_read_token_file() {
+        let token = "1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+        let file_name = "tmp_token.git";
+        {
+            let mut token_file = File::create(Path::new(file_name)).unwrap();
+            token_file.write_all(token.as_bytes()).unwrap();
+        } // Let it go out of scope so it's closed
+        let filename = String::from(file_name);
+        let read_token = read_token_file(&filename);
+        remove_file(Path::new(file_name)).unwrap();
+        assert_eq!(read_token, token);
+    }
+
+    #[test]
+    fn token_is_trimmed_nicely() {
+        let token = "1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+        let file_name = "tmp_token.git";
+        {
+            let mut token_file = File::create(Path::new(file_name)).unwrap();
+            token_file.write_all("  \t".as_bytes()).unwrap();
+            token_file.write_all(token.as_bytes()).unwrap();
+            token_file.write_all("  \n".as_bytes()).unwrap();
+        } // Let it go out of scope so it's closed
+        let filename = String::from(file_name);
+        let read_token = read_token_file(&filename);
+        remove_file(Path::new(file_name)).unwrap();
+        assert_eq!(read_token, token);
+    }
 }

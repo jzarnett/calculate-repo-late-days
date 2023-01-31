@@ -56,5 +56,8 @@ A plain text file containing your gitlab user token. You need to have the necess
 
 ## Changelog
 
+### 1.0.1
+Tests and cargo clippy
+
 ### 1.0.0
 Initial, non-parallelized version
