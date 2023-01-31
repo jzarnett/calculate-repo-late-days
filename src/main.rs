@@ -1,12 +1,11 @@
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Lines, Write};
 use std::time::Duration;
 use std::{env, fs};
 
 use chrono::{DateTime, FixedOffset, NaiveDateTime};
 use chrono_tz::Canada::Eastern;
 use chrono_tz::Tz;
-use csv::ReaderBuilder;
 use gitlab::api::projects::repository::branches::BranchBuilder;
 use gitlab::api::{projects, Query};
 use gitlab::Gitlab;
@@ -114,11 +113,10 @@ fn get_late_days(client: Gitlab, repo_members: Vec<Vec<String>>, config: GitLabC
 }
 
 fn calculate_effective_due_date(config: &GitLabConfig) -> DateTime<Tz> {
-    let effective_due_date = config
+    config
         .due_date_time
         .checked_add_signed(chrono::Duration::from_std(config.tolerance).unwrap())
-        .unwrap();
-    effective_due_date
+        .unwrap()
 }
 
 fn calculate_lateness(last_commit: DateTime<Tz>, due_date_time: DateTime<Tz>) -> i64 {
@@ -157,20 +155,22 @@ fn get_last_commit(client: &Gitlab, group_name: &String, project_name: &String) 
 
 fn parse_csv_file(filename: &String) -> Vec<Vec<String>> {
     let mut result: Vec<Vec<String>> = Vec::new();
-    let mut rdr = ReaderBuilder::new()
-        .has_headers(false)
-        .from_path(filename)
-        .unwrap();
+    let lines = read_lines(filename);
 
-    for line in rdr.records() {
+    for line in lines {
         let line = line.unwrap();
         let mut inner = Vec::new();
-        for user in line.iter() {
-            inner.push(String::from(user))
+        for user in line.split(',') {
+            inner.push(String::from(user.trim()))
         }
         result.push(inner);
     }
     result
+}
+
+fn read_lines(filename: &String) -> Lines<BufReader<File>> {
+    let file = File::open(filename).unwrap();
+    BufReader::new(file).lines()
 }
 
 fn read_token_file(filename: &String) -> String {
@@ -188,7 +188,7 @@ mod tests {
     use std::io::Write;
     use std::path::Path;
 
-    use crate::{calculate_lateness, read_token_file, DATE_TIME_FORMAT};
+    use crate::{calculate_lateness, parse_csv_file, read_token_file, DATE_TIME_FORMAT};
 
     #[test]
     fn late_days_zero_if_sub_day_before_due_date() {
@@ -277,7 +277,7 @@ mod tests {
     #[test]
     fn successfully_read_token_file() {
         let token = "1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-        let file_name = "tmp_token.git";
+        let file_name = "tmp_token1car.git";
         {
             let mut token_file = File::create(Path::new(file_name)).unwrap();
             token_file.write_all(token.as_bytes()).unwrap();
@@ -291,10 +291,10 @@ mod tests {
     #[test]
     fn token_is_trimmed_nicely() {
         let token = "1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-        let file_name = "tmp_token.git";
+        let file_name = "tmp_token2.git";
         {
             let mut token_file = File::create(Path::new(file_name)).unwrap();
-            token_file.write_all("  \t".as_bytes()).unwrap();
+            token_file.write_all("  ".as_bytes()).unwrap();
             token_file.write_all(token.as_bytes()).unwrap();
             token_file.write_all("  \n".as_bytes()).unwrap();
         } // Let it go out of scope so it's closed
@@ -302,5 +302,107 @@ mod tests {
         let read_token = read_token_file(&filename);
         remove_file(Path::new(file_name)).unwrap();
         assert_eq!(read_token, token);
+    }
+
+    #[test]
+    fn can_parse_simple_csv() {
+        let test_filename = String::from("tests/resources/simple.csv");
+        let mut expected: Vec<Vec<String>> = Vec::new();
+        let mut inner = Vec::new();
+        inner.push(String::from("username"));
+        expected.push(inner);
+
+        let parsed = parse_csv_file(&test_filename);
+
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn can_parse_group_csv() {
+        let test_filename = String::from("tests/resources/group.csv");
+        let mut expected: Vec<Vec<String>> = Vec::new();
+        let mut inner = Vec::new();
+        inner.push(String::from("username"));
+        inner.push(String::from("u2sernam"));
+        inner.push(String::from("u3sernam"));
+        expected.push(inner);
+
+        let parsed = parse_csv_file(&test_filename);
+
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn can_parse_group_w_spaces_csv() {
+        let test_filename = String::from("tests/resources/group_spaces.csv");
+        let mut expected: Vec<Vec<String>> = Vec::new();
+        let mut inner = Vec::new();
+        inner.push(String::from("username"));
+        inner.push(String::from("u2sernam"));
+        inner.push(String::from("u3sernam"));
+        expected.push(inner);
+
+        let parsed = parse_csv_file(&test_filename);
+
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn can_parse_multiple_csv() {
+        let test_filename = String::from("tests/resources/multiple.csv");
+        let mut expected: Vec<Vec<String>> = Vec::new();
+        let mut inner = Vec::new();
+        inner.push(String::from("username"));
+        expected.push(inner);
+        let mut inner = Vec::new();
+        inner.push(String::from("u2sernam"));
+        expected.push(inner);
+        let mut inner = Vec::new();
+        inner.push(String::from("u3sernam"));
+        expected.push(inner);
+
+        let parsed = parse_csv_file(&test_filename);
+
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn can_parse_group_w_uneven_sizes_csv() {
+        let test_filename = String::from("tests/resources/group_uneven_sizes.csv");
+        let mut expected: Vec<Vec<String>> = Vec::new();
+        let mut inner = Vec::new();
+        inner.push(String::from("username"));
+        inner.push(String::from("u2sernam"));
+        expected.push(inner);
+
+        let mut inner = Vec::new();
+        inner.push(String::from("u3sernam"));
+        inner.push(String::from("u4sernam"));
+        inner.push(String::from("u5sernam"));
+        expected.push(inner);
+
+        let parsed = parse_csv_file(&test_filename);
+
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn can_parse_mixed_csv() {
+        let test_filename = String::from("tests/resources/mixed.csv");
+        let mut expected: Vec<Vec<String>> = Vec::new();
+
+        let mut inner = Vec::new();
+        inner.push(String::from("username"));
+        inner.push(String::from("u2sernam"));
+        inner.push(String::from("u3sernam"));
+        expected.push(inner);
+
+        let mut inner = Vec::new();
+        inner.push(String::from("u4sernam"));
+        expected.push(inner);
+
+        let parsed = parse_csv_file(&test_filename);
+
+        assert_eq!(parsed, expected);
     }
 }
