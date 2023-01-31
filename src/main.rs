@@ -385,7 +385,6 @@ mod tests {
         assert_eq!(parsed, expected);
     }
 
-
     #[test]
     fn can_parse_group_w_uneven_sizes_csv() {
         let test_filename = String::from("tests/resources/group_uneven_sizes.csv");
