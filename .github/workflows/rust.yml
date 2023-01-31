@@ -10,23 +10,17 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  format-and-build:
 
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v3
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: mbrobbel/rustfmt-check@master
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
     - name: Build
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
-
-  format:
-    runs-on: ubuntu-latest
-    
-    steps:
-      - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: mbrobbel/rustfmt-check@master
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
