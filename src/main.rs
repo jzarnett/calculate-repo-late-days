@@ -182,13 +182,13 @@ fn read_token_file(filename: &String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::{File, remove_file};
-    use std::io::Write;
-    use std::path::Path;
     use chrono::NaiveDateTime;
     use chrono_tz::Canada::Eastern;
+    use std::fs::{remove_file, File};
+    use std::io::Write;
+    use std::path::Path;
 
-    use crate::{calculate_lateness, DATE_TIME_FORMAT, read_token_file};
+    use crate::{calculate_lateness, read_token_file, DATE_TIME_FORMAT};
 
     #[test]
     fn late_days_zero_if_sub_day_before_due_date() {
