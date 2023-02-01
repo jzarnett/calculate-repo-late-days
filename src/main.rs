@@ -88,7 +88,7 @@ fn build_config(args: &[String]) -> GitLabConfig {
 fn get_late_days(client: Gitlab, repo_members: Vec<Vec<String>>, config: GitLabConfig) {
     let output_file_name = format! {"{}-{}-latedays.csv", config.group_name, config.designation};
     let mut output_file = File::create(output_file_name).unwrap();
-    let effective_due_date = calculate_effective_due_date(&config);
+    let effective_due_date = calculate_effective_due_date(config.due_date_time, config.tolerance);
 
     for i in 0..repo_members.len() {
         let group_or_student = repo_members.get(i).unwrap();
@@ -112,10 +112,9 @@ fn get_late_days(client: Gitlab, repo_members: Vec<Vec<String>>, config: GitLabC
     }
 }
 
-fn calculate_effective_due_date(config: &GitLabConfig) -> DateTime<Tz> {
-    config
-        .due_date_time
-        .checked_add_signed(chrono::Duration::from_std(config.tolerance).unwrap())
+fn calculate_effective_due_date(due_date_time: DateTime<Tz>, tolerance: Duration) -> DateTime<Tz> {
+    due_date_time
+        .checked_add_signed(chrono::Duration::from_std(tolerance).unwrap())
         .unwrap()
 }
 
@@ -187,8 +186,12 @@ mod tests {
     use std::fs::{remove_file, File};
     use std::io::Write;
     use std::path::Path;
+    use std::time::Duration;
 
-    use crate::{calculate_lateness, parse_csv_file, read_token_file, DATE_TIME_FORMAT};
+    use crate::{
+        build_config, calculate_effective_due_date, calculate_lateness, parse_csv_file,
+        read_token_file, validate_args_len, DATE_TIME_FORMAT,
+    };
 
     #[test]
     fn late_days_zero_if_sub_day_before_due_date() {
@@ -423,5 +426,68 @@ mod tests {
         let parsed = parse_csv_file(&test_filename);
 
         assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn validate_args_expects_7() {
+        let args1 = vec![String::new(); 7];
+        let args2 = vec![String::new(); 6];
+        let args3 = vec![String::new(); 8];
+        let args4 = vec![String::new(); 1];
+
+        let validate1 = validate_args_len(&args1);
+        let validate2 = validate_args_len(&args2);
+        let validate3 = validate_args_len(&args3);
+        let validate4 = validate_args_len(&args4);
+
+        assert_eq!(validate1, true);
+        assert_eq!(validate2, false);
+        assert_eq!(validate3, false);
+        assert_eq!(validate4, false);
+    }
+
+    #[test]
+    fn correctly_build_config() {
+        let args = vec![
+            "cmd".to_string(),
+            "a1".to_string(),
+            "ece459-1231".to_string(),
+            "2023-01-27 14:30".to_string(),
+            "15".to_string(),
+            "csvfile.csv".to_string(),
+            "tokenfile.csv".to_string(),
+        ];
+        let expected_date_time =
+            NaiveDateTime::parse_from_str("2023-01-27 14:30", DATE_TIME_FORMAT).unwrap();
+        let expected_date_time = expected_date_time.and_local_timezone(Eastern).unwrap();
+        let expected_tolerance = Duration::from_secs(900);
+
+        let config = build_config(&args);
+
+        assert_eq!("a1", config.designation);
+        assert_eq!("ece459-1231", config.group_name);
+        assert_eq!(expected_date_time, config.due_date_time);
+        assert_eq!(expected_tolerance, config.tolerance);
+    }
+
+    #[test]
+    fn test_calculate_effective_due_date() {
+        let due_date_time =
+            NaiveDateTime::parse_from_str("2023-01-27 14:30", DATE_TIME_FORMAT).unwrap();
+        let due_date_time = due_date_time.and_local_timezone(Eastern).unwrap();
+        let tolerance = Duration::from_secs(900);
+
+        let expected_due_date_time =
+            NaiveDateTime::parse_from_str("2023-01-27 14:45", DATE_TIME_FORMAT).unwrap();
+        let expected_due_date_time = expected_due_date_time.and_local_timezone(Eastern).unwrap();
+
+        let effective_due_date = calculate_effective_due_date(due_date_time, tolerance);
+
+        assert_eq!(expected_due_date_time, effective_due_date);
+        let formatted_date = effective_due_date.format("%Y-%m-%d %H:%M %Z").to_string();
+        assert!(
+            "2023-01-27 14:45 EST".to_string().eq(&formatted_date)
+                || "2023-01-27 14:45 EDT".to_string().eq(&formatted_date)
+        )
     }
 }
