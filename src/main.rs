@@ -195,7 +195,8 @@ mod tests {
 
     use crate::{
         build_config, calculate_effective_due_date, calculate_lateness, get_last_commit,
-        parse_csv_file, read_token_file, validate_args_len, DATE_TIME_FORMAT,
+        get_late_days, parse_csv_file, read_token_file, validate_args_len, GitLabConfig,
+        DATE_TIME_FORMAT,
     };
 
     #[test]
@@ -544,5 +545,136 @@ mod tests {
             "2023-01-27 03:44 EST".to_string(),
             last_commit.format("%Y-%m-%d %H:%M %Z").to_string()
         );
+    }
+
+    #[test]
+    fn test_get_late_days() {
+        let _ = env_logger::try_init();
+        let user_json = fs::read_to_string("test/resources/exampleuser.json")
+            .unwrap_or_else(|_| panic!("Unable to read user data"));
+        let project_json = fs::read_to_string("test/resources/exampleproject.json")
+            .unwrap_or_else(|_| panic!("Unable to read project data"));
+        let branch_json = fs::read_to_string("test/resources/examplebranch.json")
+            .unwrap_or_else(|_| panic!("Unable to read branch data"));
+
+        let due_date = NaiveDateTime::parse_from_str("2023-01-27 14:30", DATE_TIME_FORMAT).unwrap();
+        let due_date = due_date.and_local_timezone(Eastern).unwrap();
+        let default_tolerance = Duration::from_secs(900);
+
+        let config = GitLabConfig {
+            designation: "a1".to_string(),
+            group_name: "ece459".to_string(),
+            due_date_time: due_date,
+            tolerance: default_tolerance,
+        };
+        let mut repo_members = Vec::new();
+        let mut inner = Vec::new();
+        inner.push(String::from("username"));
+        repo_members.push(inner);
+
+        let server = MockServer::start();
+        let get_user_mock = server.mock(|when, then| {
+            when.method(GET).path("/api/v4/user");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(user_json);
+        });
+        let get_proj_mock = server.mock(|when, then| {
+            when.method(GET)
+                .path("/api/v4/projects/ece459%2Fece459-a1-username");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(project_json);
+        });
+
+        let get_branch_mock = server.mock(|when, then| {
+            when.method(GET)
+                .path(format!("/api/v4/projects/4/repository/branches/master"));
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(branch_json);
+        });
+
+        let server_url = server.base_url();
+        let server_url = server_url.strip_prefix("http://").unwrap();
+        let gitlab = Gitlab::new_insecure(server_url, "00").unwrap();
+        get_late_days(gitlab, repo_members, config);
+
+        // Check that the URL was actually called!
+        get_user_mock.assert();
+        get_proj_mock.assert();
+        get_branch_mock.assert();
+        let expected_output_file = "ece459-a1-latedays.csv";
+        let output_contents = fs::read_to_string(expected_output_file)
+            .unwrap_or_else(|_| panic!("Unable to read user data"));
+        assert_eq!("username,0\n", output_contents);
+
+        remove_file(Path::new(expected_output_file)).unwrap();
+    }
+
+    #[test]
+    fn test_get_late_days_group() {
+        let _ = env_logger::try_init();
+        let user_json = fs::read_to_string("test/resources/exampleuser.json")
+            .unwrap_or_else(|_| panic!("Unable to read user data"));
+        let project_json = fs::read_to_string("test/resources/exampleproject.json")
+            .unwrap_or_else(|_| panic!("Unable to read project data"));
+        let branch_json = fs::read_to_string("test/resources/examplebranch.json")
+            .unwrap_or_else(|_| panic!("Unable to read branch data"));
+
+        let due_date = NaiveDateTime::parse_from_str("2023-01-27 14:30", DATE_TIME_FORMAT).unwrap();
+        let due_date = due_date.and_local_timezone(Eastern).unwrap();
+        let default_tolerance = Duration::from_secs(900);
+
+        let config = GitLabConfig {
+            designation: "a2".to_string(),
+            group_name: "ece459".to_string(),
+            due_date_time: due_date,
+            tolerance: default_tolerance,
+        };
+        let mut repo_members = Vec::new();
+        let mut inner = Vec::new();
+        inner.push(String::from("username"));
+        inner.push(String::from("u2sernam"));
+        repo_members.push(inner);
+
+        let server = MockServer::start();
+        let get_user_mock = server.mock(|when, then| {
+            when.method(GET).path("/api/v4/user");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(user_json);
+        });
+        let get_proj_mock = server.mock(|when, then| {
+            when.method(GET)
+                .path("/api/v4/projects/ece459%2Fece459-a2-g1");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(project_json);
+        });
+
+        let get_branch_mock = server.mock(|when, then| {
+            when.method(GET)
+                .path(format!("/api/v4/projects/4/repository/branches/master"));
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(branch_json);
+        });
+
+        let server_url = server.base_url();
+        let server_url = server_url.strip_prefix("http://").unwrap();
+        let gitlab = Gitlab::new_insecure(server_url, "00").unwrap();
+        get_late_days(gitlab, repo_members, config);
+
+        // Check that the URL was actually called!
+        get_user_mock.assert();
+        get_proj_mock.assert();
+        get_branch_mock.assert();
+        let expected_output_file = "ece459-a2-latedays.csv";
+        let output_contents = fs::read_to_string(expected_output_file)
+            .unwrap_or_else(|_| panic!("Unable to read user data"));
+        assert_eq!("username,0\nu2sernam,0\n", output_contents);
+
+        remove_file(Path::new(expected_output_file)).unwrap();
     }
 }
