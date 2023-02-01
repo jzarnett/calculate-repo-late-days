@@ -52,9 +52,11 @@ A plain text file containing your gitlab user token. You need to have the necess
 - At some point the default branch should change from `master` to `main` and it would be nice if the program could handle that automatically
 - Letting you give params in any order might be good.
 - Maybe I should revisit the decision to use the csv with student names and should instead look at membership in the group. And maybe get all repos in the group and just filter out the ones that don't match the pattern. That would eliminate the CSV entirely.
-- When I get out of programmer prison for not writing tests, I'm sure I will have to write unit tests as part of my restitution.
 
 ## Changelog
+
+### 1.0.3
+Tests!
 
 ### 1.0.1
 Tests and cargo clippy

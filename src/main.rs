@@ -103,8 +103,10 @@ fn get_late_days(client: Gitlab, repo_members: Vec<Vec<String>>, config: GitLabC
             format!("{}-{}-g{}", config.group_name, config.designation, (i + 1))
         };
 
+        println!("Calculating late days for project {project_name}...");
         let last_commit = get_last_commit(&client, &config.group_name, &project_name);
         let lateness_in_days = calculate_lateness(last_commit, effective_due_date);
+        println!("Project {project_name} is submitted {lateness_in_days} day(s) late.");
         for student in group_or_student {
             let file_line = format!("{student},{lateness_in_days}\n");
             output_file.write_all(file_line.as_bytes()).unwrap();
@@ -119,12 +121,10 @@ fn calculate_effective_due_date(due_date_time: DateTime<Tz>, tolerance: Duration
 }
 
 fn calculate_lateness(last_commit: DateTime<Tz>, due_date_time: DateTime<Tz>) -> i64 {
-    println!("Last commit was on {last_commit}; due date was {due_date_time}");
     if last_commit.le(&due_date_time) {
         return 0;
     }
     let diff = (last_commit - due_date_time).num_minutes();
-    println!("This is is {diff} minutes late");
     1 + (diff as f64 / MINS_PER_DAY).floor() as i64
 }
 
