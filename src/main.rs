@@ -181,16 +181,21 @@ fn read_token_file(filename: &String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use chrono::NaiveDateTime;
-    use chrono_tz::Canada::Eastern;
+    use std::fs;
     use std::fs::{remove_file, File};
     use std::io::Write;
     use std::path::Path;
     use std::time::Duration;
 
+    use chrono::NaiveDateTime;
+    use chrono_tz::Canada::Eastern;
+    use gitlab::Gitlab;
+
+    use httpmock::prelude::*;
+
     use crate::{
-        build_config, calculate_effective_due_date, calculate_lateness, parse_csv_file,
-        read_token_file, validate_args_len, DATE_TIME_FORMAT,
+        build_config, calculate_effective_due_date, calculate_lateness, get_last_commit,
+        parse_csv_file, read_token_file, validate_args_len, DATE_TIME_FORMAT,
     };
 
     #[test]
@@ -309,7 +314,7 @@ mod tests {
 
     #[test]
     fn can_parse_simple_csv() {
-        let test_filename = String::from("tests/resources/simple.csv");
+        let test_filename = String::from("test/resources/simple.csv");
         let mut expected: Vec<Vec<String>> = Vec::new();
         let mut inner = Vec::new();
         inner.push(String::from("username"));
@@ -322,7 +327,7 @@ mod tests {
 
     #[test]
     fn can_parse_group_csv() {
-        let test_filename = String::from("tests/resources/group.csv");
+        let test_filename = String::from("test/resources/group.csv");
         let mut expected: Vec<Vec<String>> = Vec::new();
         let mut inner = Vec::new();
         inner.push(String::from("username"));
@@ -337,7 +342,7 @@ mod tests {
 
     #[test]
     fn can_parse_group_w_spaces_csv() {
-        let test_filename = String::from("tests/resources/group_spaces.csv");
+        let test_filename = String::from("test/resources/group_spaces.csv");
         let mut expected: Vec<Vec<String>> = Vec::new();
         let mut inner = Vec::new();
         inner.push(String::from("username"));
@@ -352,7 +357,7 @@ mod tests {
 
     #[test]
     fn can_parse_multiple_csv() {
-        let test_filename = String::from("tests/resources/multiple.csv");
+        let test_filename = String::from("test/resources/multiple.csv");
         let mut expected: Vec<Vec<String>> = Vec::new();
         let mut inner = Vec::new();
         inner.push(String::from("username"));
@@ -371,7 +376,7 @@ mod tests {
 
     #[test]
     fn can_parse_with_newline_at_eof() {
-        let test_filename = String::from("tests/resources/newline_eof.csv");
+        let test_filename = String::from("test/resources/newline_eof.csv");
         let mut expected: Vec<Vec<String>> = Vec::new();
         let mut inner = Vec::new();
         inner.push(String::from("username"));
@@ -390,7 +395,7 @@ mod tests {
 
     #[test]
     fn can_parse_group_w_uneven_sizes_csv() {
-        let test_filename = String::from("tests/resources/group_uneven_sizes.csv");
+        let test_filename = String::from("test/resources/group_uneven_sizes.csv");
         let mut expected: Vec<Vec<String>> = Vec::new();
         let mut inner = Vec::new();
         inner.push(String::from("username"));
@@ -410,7 +415,7 @@ mod tests {
 
     #[test]
     fn can_parse_mixed_csv() {
-        let test_filename = String::from("tests/resources/mixed.csv");
+        let test_filename = String::from("test/resources/mixed.csv");
         let mut expected: Vec<Vec<String>> = Vec::new();
 
         let mut inner = Vec::new();
@@ -489,5 +494,55 @@ mod tests {
             "2023-01-27 14:45 EST".to_string().eq(&formatted_date)
                 || "2023-01-27 14:45 EDT".to_string().eq(&formatted_date)
         )
+    }
+
+    #[test]
+    fn test_get_last_commit() {
+        let _ = env_logger::try_init();
+        let user_json = fs::read_to_string("test/resources/exampleuser.json")
+            .unwrap_or_else(|_| panic!("Unable to read user data"));
+        let project_json = fs::read_to_string("test/resources/exampleproject.json")
+            .unwrap_or_else(|_| panic!("Unable to read project data"));
+        let branch_json = fs::read_to_string("test/resources/examplebranch.json")
+            .unwrap_or_else(|_| panic!("Unable to read branch data"));
+
+        let group = String::from("ece459");
+        let proj = String::from("a1-username");
+        let server = MockServer::start();
+        let get_user_mock = server.mock(|when, then| {
+            when.method(GET).path("/api/v4/user");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(user_json);
+        });
+        let get_proj_mock = server.mock(|when, then| {
+            when.method(GET)
+                .path("/api/v4/projects/ece459%2Fa1-username");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(project_json);
+        });
+
+        let get_branch_mock = server.mock(|when, then| {
+            when.method(GET)
+                .path(format!("/api/v4/projects/4/repository/branches/master"));
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(branch_json);
+        });
+
+        let server_url = server.base_url();
+        let server_url = server_url.strip_prefix("http://").unwrap();
+        let gitlab = Gitlab::new_insecure(server_url, "00").unwrap();
+        let last_commit = get_last_commit(&gitlab, &group, &proj);
+
+        // Check that the URL was actually called!
+        get_user_mock.assert();
+        get_proj_mock.assert();
+        get_branch_mock.assert();
+        assert_eq!(
+            "2023-01-27 03:44 EST".to_string(),
+            last_commit.format("%Y-%m-%d %H:%M %Z").to_string()
+        );
     }
 }
