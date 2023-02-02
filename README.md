@@ -55,6 +55,9 @@ A plain text file containing your gitlab user token. You need to have the necess
 
 ## Changelog
 
+### 1.0.4
+Use `main` instead of `master`.
+
 ### 1.0.3
 Tests!
 

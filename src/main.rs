@@ -12,8 +12,7 @@ use gitlab::Gitlab;
 use serde::Deserialize;
 
 const UW_GITLAB_URL: &str = "git.uwaterloo.ca";
-// One day this will be "main" but for now...
-const DEFAULT_BRANCH_NAME: &str = "master";
+const DEFAULT_BRANCH_NAME: &str = "main";
 const DATE_TIME_FORMAT: &str = "%Y-%m-%d %H:%M";
 const MINS_PER_DAY: f64 = 60.0 * 24.0;
 
@@ -526,7 +525,7 @@ mod tests {
 
         let get_branch_mock = server.mock(|when, then| {
             when.method(GET)
-                .path(format!("/api/v4/projects/4/repository/branches/master"));
+                .path(format!("/api/v4/projects/4/repository/branches/main"));
             then.status(200)
                 .header("content-type", "application/json")
                 .body(branch_json);
@@ -589,7 +588,7 @@ mod tests {
 
         let get_branch_mock = server.mock(|when, then| {
             when.method(GET)
-                .path(format!("/api/v4/projects/4/repository/branches/master"));
+                .path(format!("/api/v4/projects/4/repository/branches/main"));
             then.status(200)
                 .header("content-type", "application/json")
                 .body(branch_json);
@@ -655,7 +654,7 @@ mod tests {
 
         let get_branch_mock = server.mock(|when, then| {
             when.method(GET)
-                .path(format!("/api/v4/projects/4/repository/branches/master"));
+                .path(format!("/api/v4/projects/4/repository/branches/main"));
             then.status(200)
                 .header("content-type", "application/json")
                 .body(branch_json);
