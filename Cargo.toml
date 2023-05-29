@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 chrono = { version="0.4.23", features = ["serde"]}
 chrono-tz = "0.8.1"
-gitlab = "0.1509.0"
+gitlab = "0.1600.0"
 serde = "1.0.152"
 time = "0.3.17"
 
