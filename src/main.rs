@@ -781,7 +781,7 @@ mod tests {
         let default_tolerance = Duration::from_secs(900);
 
         let config = GitLabConfig {
-            designation: "a1".to_string(),
+            designation: "a3".to_string(),
             starter_commit_hash,
             group_name: "ece459".to_string(),
             due_date_time: due_date,
@@ -801,7 +801,7 @@ mod tests {
         });
         let get_proj_mock = server.mock(|when, then| {
             when.method(GET)
-                .path("/api/v4/projects/ece459%2Fece459-a1-username");
+                .path("/api/v4/projects/ece459%2Fece459-a3-username");
             then.status(200)
                 .header("content-type", "application/json")
                 .body(project_json);
@@ -824,8 +824,8 @@ mod tests {
         get_user_mock.assert();
         get_proj_mock.assert();
         get_branch_mock.assert();
-        let expected_output_file = "ece459-a1-latedays.csv";
-        let expected_nochanges_file = "ece459-a1-nochange.csv";
+        let expected_output_file = "ece459-a3-latedays.csv";
+        let expected_nochanges_file = "ece459-a3-nochange.csv";
         let nochanges_content = fs::read_to_string(expected_nochanges_file)
             .unwrap_or_else(|_| panic!("Unable to read user data"));
         assert_eq!("username\n", nochanges_content);
