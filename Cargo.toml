@@ -1,18 +1,18 @@
 [package]
 name = "calculate-repo-late-days"
-version = "1.0.4"
+version = "1.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chrono = { version="0.4.23", features = ["serde"]}
-chrono-tz = "0.8.1"
-gitlab = "0.1600.1"
-serde = "1.0.152"
-time = "0.3.17"
+chrono = { version="0.4.33", features = ["serde"]}
+chrono-tz = "0.8.5"
+gitlab = "0.1608.0"
+serde = "1.0.196"
+time = "0.3.34"
 
 [dev-dependencies]
-httpmock = "0.6"
+httpmock = "0.7"
 log = { version = "0.4", features = ["std", "serde"] }
-env_logger = "0.10.0"
+env_logger = "0.11.1"

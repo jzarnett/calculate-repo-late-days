@@ -18,12 +18,17 @@ I tried to make it easy but there are a few things that could not be avoided. It
 
 Formally:
 ```
-executable <designation> <gitlab_group_name> <due_date_time> <tolerance_in_mins> <list_of_student_groups.csv> <token_file>
+executable <designation> <starter_commit_hash> <gitlab_group_name> <due_date_time> <tolerance_in_mins> <list_of_student_groups.csv> <token_file>
 ```
 
 In order then:
 ### `designation`
 The designation refers to how this repos you want to evalute are designated: typically assignment 1 would be given as `a1`, but you could say it's the final exam by putting `final`, or a project by `p`. Whatever you did with the create-repos tool!
+
+### `starter_commit_hash`
+This is the last full commit hash for the starter code. It's used to determine whether the student(s) has (have) actually made any changes to the repository. If they have not, the output file will not contain the student's name. 
+
+Earlier versions of this (pre 1.1.0)
 
 ### `gitlab_group_name`
 This is the group in gitlab where the repos to check are found. So if the course and term I'm running this in are ECE 459 and 1231 (Winter 2023), I would choose `ece459-1231`.
@@ -49,11 +54,15 @@ A plain text file containing your gitlab user token. You need to have the necess
 
 ## TODOs
 - This isn't parallelized, though in practice I'd like to try doing 2-3 repos at once. Helps when there's 400+ students.
-- At some point the default branch should change from `master` to `main` and it would be nice if the program could handle that automatically
 - Letting you give params in any order might be good.
 - Maybe I should revisit the decision to use the csv with student names and should instead look at membership in the group. And maybe get all repos in the group and just filter out the ones that don't match the pattern. That would eliminate the CSV entirely.
 
 ## Changelog
+
+### 1.1.0
+No longer putting 0 for late day usage next to students whose starter repo has not been changed at all.
+
+Also dependency updates
 
 ### 1.0.4
 Use `main` instead of `master`.

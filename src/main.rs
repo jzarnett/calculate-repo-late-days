@@ -8,7 +8,7 @@ use chrono_tz::Canada::Eastern;
 use chrono_tz::Tz;
 use gitlab::api::projects::repository::branches::BranchBuilder;
 use gitlab::api::{projects, Query};
-use gitlab::Gitlab;
+use gitlab::{Gitlab, ObjectId};
 use serde::Deserialize;
 
 const UW_GITLAB_URL: &str = "git.uwaterloo.ca";
@@ -23,6 +23,7 @@ struct Project {
 
 #[derive(Debug, Deserialize)]
 struct Commit {
+    id: ObjectId,
     committed_date: DateTime<FixedOffset>,
 }
 
@@ -34,6 +35,7 @@ struct Branch {
 
 struct GitLabConfig {
     designation: String,
+    starter_commit_hash: String,
     group_name: String,
     due_date_time: DateTime<Tz>,
     tolerance: Duration,
@@ -55,14 +57,14 @@ fn main() {
 }
 
 fn validate_args_len(args: &Vec<String>) -> bool {
-    if args.len() != 7 {
+    if args.len() != 8 {
         println!(
-            "Usage: {} <designation> <gitlab_group_name> <due_date_time> <tolerance_in_mins> <list_of_student_groups.csv> <token_file>",
-            args.get(0).unwrap()
+            "Usage: {} <designation> <starter_commit_hash> <gitlab_group_name> <due_date_time> <tolerance_in_mins> <list_of_student_groups.csv> <token_file>",
+            args.first().unwrap()
         );
         println!(
-            "Example: {} a1 ece459-1231 \"2023-01-27 23:59\" 60 students.csv token.git",
-            args.get(0).unwrap()
+            "Example: {} a1 c335fdb690e88c7cd162e10d42800e93 ece459-1231 \"2023-01-27 23:59\" 60 students.csv token.git",
+            args.first().unwrap()
         );
         return false;
     }
@@ -70,14 +72,15 @@ fn validate_args_len(args: &Vec<String>) -> bool {
 }
 
 fn build_config(args: &[String]) -> GitLabConfig {
-    let duration_minutes: u64 = args.get(4).unwrap().parse().unwrap();
+    let duration_minutes: u64 = args.get(5).unwrap().parse().unwrap();
     let naive_date_time =
-        NaiveDateTime::parse_from_str(args.get(3).unwrap(), DATE_TIME_FORMAT).unwrap();
+        NaiveDateTime::parse_from_str(args.get(4).unwrap(), DATE_TIME_FORMAT).unwrap();
     let due_date = naive_date_time.and_local_timezone(Eastern).unwrap();
 
     let config = GitLabConfig {
         designation: String::from(args.get(1).unwrap()),
-        group_name: String::from(args.get(2).unwrap()),
+        starter_commit_hash: String::from(args.get(2).unwrap()),
+        group_name: String::from(args.get(3).unwrap()),
         due_date_time: due_date,
         tolerance: Duration::from_secs(60 * duration_minutes),
     };
@@ -86,7 +89,9 @@ fn build_config(args: &[String]) -> GitLabConfig {
 
 fn get_late_days(client: Gitlab, repo_members: Vec<Vec<String>>, config: GitLabConfig) {
     let output_file_name = format! {"{}-{}-latedays.csv", config.group_name, config.designation};
+    let no_change_file_name = format! {"{}-{}-nochange.csv", config.group_name, config.designation};
     let mut output_file = File::create(output_file_name).unwrap();
+    let mut no_change_file = File::create(no_change_file_name).unwrap();
     let effective_due_date = calculate_effective_due_date(config.due_date_time, config.tolerance);
 
     for i in 0..repo_members.len() {
@@ -96,15 +101,28 @@ fn get_late_days(client: Gitlab, repo_members: Vec<Vec<String>>, config: GitLabC
                 "{}-{}-{}",
                 config.group_name,
                 config.designation,
-                group_or_student.get(0).unwrap()
+                group_or_student.first().unwrap()
             )
         } else {
             format!("{}-{}-g{}", config.group_name, config.designation, (i + 1))
         };
 
         println!("Calculating late days for project {project_name}...");
-        let last_commit = get_last_commit(&client, &config.group_name, &project_name);
-        let lateness_in_days = calculate_lateness(last_commit, effective_due_date);
+        let last_commit = get_last_commit(
+            &client,
+            &config.group_name,
+            &config.starter_commit_hash,
+            &project_name,
+        );
+        if last_commit.is_none() {
+            println!("Project {project_name} has not been changed since the starter commit hash.");
+            for student in group_or_student {
+                let no_change_line = format!("{student}\n");
+                no_change_file.write_all(no_change_line.as_bytes()).unwrap();
+            }
+            continue;
+        }
+        let lateness_in_days = calculate_lateness(last_commit.unwrap(), effective_due_date);
         println!("Project {project_name} is submitted {lateness_in_days} day(s) late.");
         for student in group_or_student {
             let file_line = format!("{student},{lateness_in_days}\n");
@@ -127,7 +145,12 @@ fn calculate_lateness(last_commit: DateTime<Tz>, due_date_time: DateTime<Tz>) ->
     1 + (diff as f64 / MINS_PER_DAY).floor() as i64
 }
 
-fn get_last_commit(client: &Gitlab, group_name: &String, project_name: &String) -> DateTime<Tz> {
+fn get_last_commit(
+    client: &Gitlab,
+    group_name: &String,
+    starter_commit_hash: &String,
+    project_name: &String,
+) -> Option<DateTime<Tz>> {
     let project_builder = projects::ProjectBuilder::default()
         .project(format!("{group_name}/{project_name}"))
         .build()
@@ -148,7 +171,10 @@ fn get_last_commit(client: &Gitlab, group_name: &String, project_name: &String) 
             "Project {project_name} uses a different default branch than expected {DEFAULT_BRANCH_NAME}!",
         )
     }
-    branch.commit.committed_date.with_timezone(&Eastern)
+    if branch.commit.id.value() == starter_commit_hash {
+        return None;
+    }
+    Some(branch.commit.committed_date.with_timezone(&Eastern))
 }
 
 fn parse_csv_file(filename: &String) -> Vec<Vec<String>> {
@@ -434,10 +460,10 @@ mod tests {
     }
 
     #[test]
-    fn validate_args_expects_7() {
-        let args1 = vec![String::new(); 7];
-        let args2 = vec![String::new(); 6];
-        let args3 = vec![String::new(); 8];
+    fn validate_args_expects_8() {
+        let args1 = vec![String::new(); 8];
+        let args2 = vec![String::new(); 7];
+        let args3 = vec![String::new(); 9];
         let args4 = vec![String::new(); 1];
 
         let validate1 = validate_args_len(&args1);
@@ -456,6 +482,7 @@ mod tests {
         let args = vec![
             "cmd".to_string(),
             "a1".to_string(),
+            "e308eadf8d161c28edbf1076684eb4f7".to_string(),
             "ece459-1231".to_string(),
             "2023-01-27 14:30".to_string(),
             "15".to_string(),
@@ -473,6 +500,10 @@ mod tests {
         assert_eq!("ece459-1231", config.group_name);
         assert_eq!(expected_date_time, config.due_date_time);
         assert_eq!(expected_tolerance, config.tolerance);
+        assert_eq!(
+            "e308eadf8d161c28edbf1076684eb4f7",
+            config.starter_commit_hash
+        )
     }
 
     #[test]
@@ -508,6 +539,7 @@ mod tests {
 
         let group = String::from("ece459");
         let proj = String::from("a1-username");
+        let starter_commit_hash = String::from("79ca81e76a65ff5009596c6e60b99ad0");
         let server = MockServer::start();
         let get_user_mock = server.mock(|when, then| {
             when.method(GET).path("/api/v4/user");
@@ -534,7 +566,7 @@ mod tests {
         let server_url = server.base_url();
         let server_url = server_url.strip_prefix("http://").unwrap();
         let gitlab = Gitlab::new_insecure(server_url, "00").unwrap();
-        let last_commit = get_last_commit(&gitlab, &group, &proj);
+        let last_commit = get_last_commit(&gitlab, &group, &starter_commit_hash, &proj).unwrap();
 
         // Check that the URL was actually called!
         get_user_mock.assert();
@@ -547,6 +579,54 @@ mod tests {
     }
 
     #[test]
+    fn test_last_commit_is_null_when_same_as_starter_code() {
+        let _ = env_logger::try_init();
+        let user_json = fs::read_to_string("test/resources/exampleuser.json")
+            .unwrap_or_else(|_| panic!("Unable to read user data"));
+        let project_json = fs::read_to_string("test/resources/exampleproject.json")
+            .unwrap_or_else(|_| panic!("Unable to read project data"));
+        let branch_json = fs::read_to_string("test/resources/examplebranch.json")
+            .unwrap_or_else(|_| panic!("Unable to read branch data"));
+
+        let group = String::from("ece459");
+        let proj = String::from("a1-username");
+        let starter_commit_hash = String::from("7b5c3cc8be40ee161ae89a06bba6229da1032a0c");
+        let server = MockServer::start();
+        let get_user_mock = server.mock(|when, then| {
+            when.method(GET).path("/api/v4/user");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(user_json);
+        });
+        let get_proj_mock = server.mock(|when, then| {
+            when.method(GET)
+                .path("/api/v4/projects/ece459%2Fa1-username");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(project_json);
+        });
+
+        let get_branch_mock = server.mock(|when, then| {
+            when.method(GET)
+                .path(format!("/api/v4/projects/4/repository/branches/main"));
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(branch_json);
+        });
+
+        let server_url = server.base_url();
+        let server_url = server_url.strip_prefix("http://").unwrap();
+        let gitlab = Gitlab::new_insecure(server_url, "00").unwrap();
+        let last_commit = get_last_commit(&gitlab, &group, &starter_commit_hash, &proj);
+
+        // Check that the URL was actually called!
+        get_user_mock.assert();
+        get_proj_mock.assert();
+        get_branch_mock.assert();
+        assert_eq!(last_commit.is_none(), true)
+    }
+
+    #[test]
     fn test_get_late_days() {
         let _ = env_logger::try_init();
         let user_json = fs::read_to_string("test/resources/exampleuser.json")
@@ -556,12 +636,14 @@ mod tests {
         let branch_json = fs::read_to_string("test/resources/examplebranch.json")
             .unwrap_or_else(|_| panic!("Unable to read branch data"));
 
+        let starter_commit_hash = String::from("79ca81e76a65ff5009596c6e60b99ad0");
         let due_date = NaiveDateTime::parse_from_str("2023-01-27 14:30", DATE_TIME_FORMAT).unwrap();
         let due_date = due_date.and_local_timezone(Eastern).unwrap();
         let default_tolerance = Duration::from_secs(900);
 
         let config = GitLabConfig {
             designation: "a1".to_string(),
+            starter_commit_hash,
             group_name: "ece459".to_string(),
             due_date_time: due_date,
             tolerance: default_tolerance,
@@ -604,11 +686,13 @@ mod tests {
         get_proj_mock.assert();
         get_branch_mock.assert();
         let expected_output_file = "ece459-a1-latedays.csv";
+        let expected_nochanges_file = "ece459-a1-nochange.csv";
         let output_contents = fs::read_to_string(expected_output_file)
             .unwrap_or_else(|_| panic!("Unable to read user data"));
         assert_eq!("username,0\n", output_contents);
 
         remove_file(Path::new(expected_output_file)).unwrap();
+        remove_file(Path::new(expected_nochanges_file)).unwrap();
     }
 
     #[test]
@@ -621,12 +705,14 @@ mod tests {
         let branch_json = fs::read_to_string("test/resources/examplebranch.json")
             .unwrap_or_else(|_| panic!("Unable to read branch data"));
 
+        let starter_commit_hash = String::from("79ca81e76a65ff5009596c6e60b99ad0");
         let due_date = NaiveDateTime::parse_from_str("2023-01-27 14:30", DATE_TIME_FORMAT).unwrap();
         let due_date = due_date.and_local_timezone(Eastern).unwrap();
         let default_tolerance = Duration::from_secs(900);
 
         let config = GitLabConfig {
             designation: "a2".to_string(),
+            starter_commit_hash,
             group_name: "ece459".to_string(),
             due_date_time: due_date,
             tolerance: default_tolerance,
@@ -670,10 +756,81 @@ mod tests {
         get_proj_mock.assert();
         get_branch_mock.assert();
         let expected_output_file = "ece459-a2-latedays.csv";
+        let expected_nochanges_file = "ece459-a2-nochange.csv";
         let output_contents = fs::read_to_string(expected_output_file)
             .unwrap_or_else(|_| panic!("Unable to read user data"));
         assert_eq!("username,0\nu2sernam,0\n", output_contents);
 
         remove_file(Path::new(expected_output_file)).unwrap();
+        remove_file(Path::new(expected_nochanges_file)).unwrap();
+    }
+
+    #[test]
+    fn test_get_late_days_when_no_changes() {
+        let _ = env_logger::try_init();
+        let user_json = fs::read_to_string("test/resources/exampleuser.json")
+            .unwrap_or_else(|_| panic!("Unable to read user data"));
+        let project_json = fs::read_to_string("test/resources/exampleproject.json")
+            .unwrap_or_else(|_| panic!("Unable to read project data"));
+        let branch_json = fs::read_to_string("test/resources/examplebranch.json")
+            .unwrap_or_else(|_| panic!("Unable to read branch data"));
+
+        let starter_commit_hash = String::from("7b5c3cc8be40ee161ae89a06bba6229da1032a0c");
+        let due_date = NaiveDateTime::parse_from_str("2023-01-27 14:30", DATE_TIME_FORMAT).unwrap();
+        let due_date = due_date.and_local_timezone(Eastern).unwrap();
+        let default_tolerance = Duration::from_secs(900);
+
+        let config = GitLabConfig {
+            designation: "a1".to_string(),
+            starter_commit_hash,
+            group_name: "ece459".to_string(),
+            due_date_time: due_date,
+            tolerance: default_tolerance,
+        };
+        let mut repo_members = Vec::new();
+        let mut inner = Vec::new();
+        inner.push(String::from("username"));
+        repo_members.push(inner);
+
+        let server = MockServer::start();
+        let get_user_mock = server.mock(|when, then| {
+            when.method(GET).path("/api/v4/user");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(user_json);
+        });
+        let get_proj_mock = server.mock(|when, then| {
+            when.method(GET)
+                .path("/api/v4/projects/ece459%2Fece459-a1-username");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(project_json);
+        });
+
+        let get_branch_mock = server.mock(|when, then| {
+            when.method(GET)
+                .path(format!("/api/v4/projects/4/repository/branches/main"));
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(branch_json);
+        });
+
+        let server_url = server.base_url();
+        let server_url = server_url.strip_prefix("http://").unwrap();
+        let gitlab = Gitlab::new_insecure(server_url, "00").unwrap();
+        get_late_days(gitlab, repo_members, config);
+
+        // Check that the URL was actually called!
+        get_user_mock.assert();
+        get_proj_mock.assert();
+        get_branch_mock.assert();
+        let expected_output_file = "ece459-a1-latedays.csv";
+        let expected_nochanges_file = "ece459-a1-nochange.csv";
+        let nochanges_content = fs::read_to_string(expected_nochanges_file)
+            .unwrap_or_else(|_| panic!("Unable to read user data"));
+        assert_eq!("username\n", nochanges_content);
+
+        remove_file(Path::new(expected_output_file)).unwrap();
+        remove_file(Path::new(expected_nochanges_file)).unwrap();
     }
 }
