@@ -500,7 +500,10 @@ mod tests {
         assert_eq!("ece459-1231", config.group_name);
         assert_eq!(expected_date_time, config.due_date_time);
         assert_eq!(expected_tolerance, config.tolerance);
-        assert_eq!("e308eadf8d161c28edbf1076684eb4f7", config.starter_commit_hash)
+        assert_eq!(
+            "e308eadf8d161c28edbf1076684eb4f7",
+            config.starter_commit_hash
+        )
     }
 
     #[test]
