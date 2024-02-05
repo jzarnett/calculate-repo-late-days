@@ -193,8 +193,11 @@ fn parse_csv_file(filename: &String) -> Vec<Vec<String>> {
 }
 
 fn read_lines(filename: &String) -> Lines<BufReader<File>> {
-    let file = File::open(filename).unwrap();
-    BufReader::new(file).lines()
+    if let Ok(file) = File::open(filename) {
+        BufReader::new(file).lines()
+    } else {
+        panic!("Failed to read {filename}")
+    }
 }
 
 fn read_token_file(filename: &String) -> String {
