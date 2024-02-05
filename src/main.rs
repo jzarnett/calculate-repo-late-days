@@ -48,9 +48,9 @@ fn main() {
     }
 
     let config = build_config(&args);
-    let repo_members = parse_csv_file(args.get(5).unwrap());
+    let repo_members = parse_csv_file(args.get(6).unwrap());
 
-    let token = read_token_file(args.get(6).unwrap());
+    let token = read_token_file(args.get(7).unwrap());
     let client = Gitlab::new(String::from(UW_GITLAB_URL), token).unwrap();
 
     get_late_days(client, repo_members, config)
@@ -193,8 +193,11 @@ fn parse_csv_file(filename: &String) -> Vec<Vec<String>> {
 }
 
 fn read_lines(filename: &String) -> Lines<BufReader<File>> {
-    let file = File::open(filename).unwrap();
-    BufReader::new(file).lines()
+    if let Ok(file) = File::open(filename) {
+        BufReader::new(file).lines()
+    } else {
+        panic!("Failed to read {filename}")
+    }
 }
 
 fn read_token_file(filename: &String) -> String {
