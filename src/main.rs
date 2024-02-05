@@ -48,9 +48,9 @@ fn main() {
     }
 
     let config = build_config(&args);
-    let repo_members = parse_csv_file(args.get(5).unwrap());
+    let repo_members = parse_csv_file(args.get(6).unwrap());
 
-    let token = read_token_file(args.get(6).unwrap());
+    let token = read_token_file(args.get(7).unwrap());
     let client = Gitlab::new(String::from(UW_GITLAB_URL), token).unwrap();
 
     get_late_days(client, repo_members, config)
