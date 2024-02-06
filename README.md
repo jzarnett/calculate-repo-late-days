@@ -28,7 +28,7 @@ The designation refers to how this repos you want to evalute are designated: typ
 ### `starter_commit_hash`
 This is the last full commit hash for the starter code. It's used to determine whether the student(s) has (have) actually made any changes to the repository. If they have not, the output file will not contain the student's name. 
 
-Earlier versions of this (pre 1.1.0)
+Earlier versions of this tool (pre 1.1.0) did not contain this option. If a student had not made any changes, the date of change would be whenever the last starter code commit took place (which may be recent or years prior!). This would result in 0 late days usage being reported which isn't entirely correct and is a bit misleading. Now those cases appear in a separate output file and not in the original output report. 
 
 ### `gitlab_group_name`
 This is the group in gitlab where the repos to check are found. So if the course and term I'm running this in are ECE 459 and 1231 (Winter 2023), I would choose `ece459-1231`.
